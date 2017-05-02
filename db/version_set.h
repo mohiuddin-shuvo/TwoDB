@@ -77,7 +77,7 @@ class Version {
 
   //Continuous Query DB
   Status Get( const ReadOptions& options, const LookupKey& k, std::vector<std::string>& value,
-          GetStats* stats, std::string secKey, int kNoOfOutputs);
+          GetStats* stats, std::string secKey , std::string &t,  int kNoOfOutputs);
   
   
   

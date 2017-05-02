@@ -99,6 +99,7 @@ struct Options {
   // If NULL, leveldb will automatically create and use an 8MB internal cache.
   // Default: NULL
   Cache* block_cache;
+  Cache* Q_block_cache;
 
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The

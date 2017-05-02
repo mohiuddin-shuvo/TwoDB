@@ -34,8 +34,7 @@
 #include "util/mutexlock.h"
 
 #include <string>
-#include <sstream>
-#include <fstream>
+
 
 #include <iostream>
 
@@ -1632,6 +1631,13 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 
 
 //Continuous query DB
+
+Status DBImpl::PutR(const WriteOptions& options, const Slice& key, const Slice& json_value)
+{
+	Status s = this->Put(options, key, json_value);
+
+	return s;
+}
 Status DBImpl::PutC(const WriteOptions& options, const Slice& key, const Slice& json_value, std::vector<std::string>& listofUsers)
 {
 	rapidjson::Document val;
@@ -1655,25 +1661,25 @@ Status DBImpl::PutC(const WriteOptions& options, const Slice& key, const Slice& 
 //This function is only called from QueryDB
 Status DBImpl::GetAllUsers(const Slice& key, std::string& tnow, std::vector<std::string>& users)
 {
-	std::vector<std::string> listofusersJson;
+	//std::vector<std::string> listofusersJson;
 
-	this->Get(ReadOptions(), key, listofusersJson);
+	Status s = this->Get(ReadOptions(), key, tnow, users);
 
 	//Extract UserIDs from the list
-	for(int i=0; i< listofusersJson.size(); i++)
-	{
-		rapidjson::Document val;
+//	for(int i=0; i< listofusersJson.size(); i++)
+//	{
+//		rapidjson::Document val;
+//
+//		std::string s = listofusersJson[i];
+//
+//		val.Parse<0>(s.c_str());
+//
+//		std::string user = GetAttr(val, "UserId");
+//
+//		users.push_back(user);
+//	}
 
-		std::string s = listofusersJson[i];
-
-		val.Parse<0>(s.c_str());
-
-		std::string user = GetAttr(val, "UserId");
-
-		users.push_back(user);
-	}
-
-	return Status::OK();
+	return s;
 }
 
 //This function is only called from EventsDB
@@ -1682,11 +1688,30 @@ Status DBImpl::GetAllEvents(const ReadOptions& options,const Slice& key, std::st
 {
 	//TO do Filter Results with tmin
 	
-	Status s = this->Get(options, key, results);
+	Status s = this->Get(options, key, tmin, results);
 
 	return s;
 }
 
+Status DBImpl::GetR(const ReadOptions& options, const Slice& key, const Slice& json_value, std::vector<std::string>& events)
+{
+	rapidjson::Document val;
+
+	val.Parse<0>(json_value.data());
+
+	std::string tmin = GetAttr(val, "Tmin");
+	std::string tmax = GetAttr(val, "Tmax");
+	std::string tnow = GetAttr(val, "Tnow");
+
+	Status s;
+
+	if(tnow>tmin)
+	{
+		s = this->GetAllEvents(options, key, tmin , events);
+	}
+
+	return s;
+}
 
 Status DBImpl::GetC(const ReadOptions& roptions, const Slice& key, const Slice& json_value, std::vector<std::string>& events)
 {
@@ -1709,9 +1734,58 @@ Status DBImpl::GetC(const ReadOptions& roptions, const Slice& key, const Slice& 
         s = this->querydb->Put(WriteOptions(), key, json_value);
     }
 
+
     return s;
 }
 
+Status DBImpl::PutBaseComplexQuery(const WriteOptions& options,
+        const Slice& key, const Slice& json_value, std::vector<std::string>& users, std::vector<std::string>& events)
+{
+	rapidjson::Document val;
+
+	val.Parse<0>(json_value.data());
+
+	std::string tmin = "0";
+	//std::string tmax = GetAttr(val, "Tmax");
+	std::string tnow = GetAttr(val, "Tnow");
+
+	Status s;
+
+
+	s = this->GetAllEvents(ReadOptions(), key, tmin , events);
+
+	 s = this->Put(options, key, json_value);
+
+	s = this->querydb->GetAllUsers(key, tnow, users);
+
+	return s;
+}
+Status DBImpl::GetBaseComplexQuery(const ReadOptions& roptions,
+        const Slice& key, const Slice& json_value, std::vector<std::string>& users, std::vector<std::string>& events)
+{
+	rapidjson::Document val;
+
+	val.Parse<0>(json_value.data());
+
+	std::string tmin = GetAttr(val, "Tmin");
+	std::string tmax = GetAttr(val, "Tmax");
+	std::string tnow = GetAttr(val, "Tnow");
+
+	Status s;
+
+	if(tnow>tmin)
+	{
+		s = this->GetAllEvents(roptions, key, tmin , events);
+	}
+	if(tnow<tmax)
+	{
+		s = this->querydb->Put(WriteOptions(), key, json_value);
+	}
+
+	s = this->querydb->GetAllUsers(key, tnow, users);
+
+	return s;
+}
 
  
 Status DBImpl::Put(const WriteOptions& options, const Slice& value) {
@@ -1748,7 +1822,7 @@ Status DBImpl::Put(const WriteOptions& options, const Slice& value) {
 //*******************************************************************************************
 //
 
-Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::vector<std::string>& value_list) {
+Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string& t, std::vector<std::string>& value_list) {
     
 //std::ofstream outputFile;
 //outputFile.open("/Users/nakshikatha/Desktop/test codes/debug3.txt", std::ofstream::out | std::ofstream::app);
@@ -1798,8 +1872,10 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::vector<std
 			std::string pkey = GetVal(mem_key_list[i]);
 
 			//outputFile<<pkey<<" -> "<<pValue<<"\n"<<skey.ToString()<<" == "<< GetAttr(temp_val, this->options_.secondary_key.c_str())<<"\n";
+			bool f  = PushResult(value_list, pkey , t);
 
-			value_list.push_back(pkey);
+			if(f==false)
+				return s;
 
 			i--;
 
@@ -1824,8 +1900,10 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::vector<std
 				std::string pkey = GetVal(imm_key_list[i]);
 
 				//outputFile<<pkey<<" -> "<<pValue<<"\n"<<skey.ToString()<<" == "<< GetAttr(temp_val, this->options_.secondary_key.c_str())<<"\n";
-
-				value_list.push_back(pkey);
+				bool f = PushResult(value_list, pkey , t);
+				if(f==false)
+					return s;
+				//value_list.push_back(pkey);
 
 				i--;
 
@@ -1841,7 +1919,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::vector<std
     {
         //outputFile<<"sstget\n";
     	//s = current->Get(options, lkey, value_list, &stats, this->options_.secondary_key, kNoOfOutputs,db,&resultSetofKeysFound);
-    	s = current->Get(options, lkey, value_list, &stats, this->options_.secondary_key, 0);
+    	s = current->Get(options, lkey, value_list, &stats, this->options_.secondary_key, t, 0);
 
 
     	//outputFile<<"in\n";
@@ -2148,7 +2226,8 @@ Status DB::Delete(const WriteOptions& opt, const Slice& key) {
 DB::~DB() { }
 
 //Continuous Query DB
-
+unsigned long long int DB::hit=0;
+unsigned long long int DB::miss = 0;
 Status DB::Open(const Options& options, const std::string& dbname,
                 DB** dbptr,DB* qDbOfdDb) {
   *dbptr = NULL;
@@ -2190,11 +2269,11 @@ Status DB::Open(const Options& options, const std::string& dbname,
     Options soption;
     soption.create_if_missing = true;
     soption.using_s_index  = false;
- 
+    soption.block_cache = options.Q_block_cache;
     soption.isQueryDB = true;
     //soption.primary_key = options.primary_key ;
     //soption.secondary_key = options.secondary_key ;
-    
+
     Status sstatus = DB::Open(soption, sdbname, &impl->querydb, *dbptr);
     
     // return any errors, secondary db errors first

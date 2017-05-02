@@ -18,6 +18,9 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 
+#include <sstream>
+#include <fstream>
+
 namespace leveldb {
 
 class MemTable;
@@ -50,7 +53,7 @@ class DBImpl : public DB {
   virtual Status Put(const WriteOptions& options,
                      const Slice& value);
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key, std::vector<std::string>& value_list);
+                     const Slice& key, std::string& t, std::vector<std::string>& value_list);
 //
 //  virtual Status SGet(const ReadOptions& options,
 //                     const Slice& key, std::vector<KeyValuePair>* value_list, DB* db);
@@ -58,11 +61,116 @@ class DBImpl : public DB {
   //Continuous Query DB
   virtual Status PutC(const WriteOptions& options, const Slice& key, const Slice& json_value, std::vector<std::string>& users);
 
+  virtual Status PutR(const WriteOptions& options, const Slice& key, const Slice& json_value);
+
   virtual Status GetC(const ReadOptions& options,
                      const Slice& key, const Slice& value, std::vector<std::string>& events);
 
+  virtual Status GetR(const ReadOptions& options, const Slice& key, const Slice& json_value, std::vector<std::string>& events);
+
+  virtual Status GetBaseComplexQuery(const ReadOptions& options,
+          const Slice& key, const Slice& value, std::vector<std::string>& users, std::vector<std::string>& events);
+
+
+  virtual Status PutBaseComplexQuery(const WriteOptions& options,
+          const Slice& key, const Slice& value, std::vector<std::string>& users, std::vector<std::string>& events) ;
+
   virtual Status GetAllUsers(const Slice& key, std::string& tnow, std::vector<std::string>& results);
   virtual Status GetAllEvents(const ReadOptions& options,const Slice& key, std::string& tmin,  std::vector<std::string>& results);
+
+  static std::string GetAttr(const rapidjson::Document& doc, const char* attr) {
+    if(!doc.IsObject() || !doc.HasMember(attr) || doc[attr].IsNull())
+      return "";
+
+    std::ostringstream pKey;
+
+    if(doc[attr].IsNumber()) {
+      if(doc[attr].IsUint64()) {
+        unsigned long long int tid = doc[attr].GetUint64();
+        pKey<<tid;
+      }
+      else if (doc[attr].IsInt64()) {
+        long long int tid = doc[attr].GetInt64();
+        pKey<<tid;
+      }
+      else if (doc[attr].IsDouble()) {
+        double tid = doc[attr].GetDouble();
+        pKey<<tid;
+      }
+      else if (doc[attr].IsUint()) {
+        unsigned int tid = doc[attr].GetUint();
+        pKey<<tid;
+      }
+      else if (doc[attr].IsInt()) {
+        int tid = doc[attr].GetInt();
+        pKey<<tid;
+      }
+    }
+    else if (doc[attr].IsString()) {
+      const char* tid = doc[attr].GetString();
+      pKey<<tid;
+    }
+    else if(doc[attr].IsBool()) {
+      bool tid = doc[attr].GetBool();
+      pKey<<tid;
+    }
+
+    return pKey.str();
+  }
+
+  static bool PushResult(std::vector<std::string>& value_list, std::string& val, std::string& t)
+    {
+  	  if(val.empty())
+  		  return true;
+
+  	  //std::cout<<isQ<<" "<<val;
+
+
+	  rapidjson::Document doc;
+
+	  doc.Parse<0>(val.data());
+
+	  std::string uid = GetAttr(doc, "UserId");
+
+	  if(!uid.empty())
+	  {
+
+  		  std::string tmax = GetAttr(doc, "Tmax");
+  		  long tmaxl = std::stol(tmax);
+
+  		  long tl = std::stol(t);
+
+  		  if(tl<=tmaxl)
+  			  value_list.push_back(uid);
+
+
+  		  return true;
+
+  	  }
+  	  else
+  	  {
+
+  		  std::string tnow = GetAttr(doc, "Tnow");
+  		  long tnowl = std::stol(tnow);
+
+  		  long tl = std::stol(t);
+
+//		  if(tnowl<tl)
+//			  return false;
+
+  		  if(tnowl>=tl)
+  			  value_list.push_back(val);
+  //		  if(val.at(0)=='D')
+  //		  {
+  //			  std::string qval = val.substr(1);
+  //			  value_list.push_back(val);
+  //		  }
+
+  		  return true;
+
+  	  }
+
+    }
 
 
   // Extra methods (for testing) that are not in the public DB interface

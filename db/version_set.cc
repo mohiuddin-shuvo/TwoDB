@@ -530,7 +530,7 @@ std::string V_GetAttr(const rapidjson::Document& doc, const char* attr) {
 }
  
 Status Version::Get( const ReadOptions& options, const LookupKey& k, std::vector<std::string>& value,
-        GetStats* stats, std::string secKey, int kNoOfOutputs)
+        GetStats* stats, std::string secKey, std::string &t, int kNoOfOutputs)
 {
     
     //std::ofstream outputFile;
@@ -561,24 +561,24 @@ Status Version::Get( const ReadOptions& options, const LookupKey& k, std::vector
 
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
-    //if (level == 0) {
+    if (level == 0) {
       // Level-0 files may overlap each other.  Find all files that
       // overlap user_key and process them in order from newest to oldest.
       tmp.reserve(num_files);
       for (uint32_t i = 0; i < num_files; i++) {
         FileMetaData* f = files[i];
-        //if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
-        //    ucmp->Compare(user_key, f->largest.user_key()) <= 0) {
+        if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
+            ucmp->Compare(user_key, f->largest.user_key()) <= 0) {
           tmp.push_back(f);
-        //}
+        }
       }
       if (tmp.empty()) continue;
 
       std::sort(tmp.begin(), tmp.end(), NewestFirst);
       files = &tmp[0];
       num_files = tmp.size();
-    //} 
-    /*else {
+    }
+    else {
       // Binary search to find earliest index whose largest key >= ikey.
       uint32_t index = FindFile(vset_->icmp_, files_[level], ikey);
       if (index >= num_files) {
@@ -596,8 +596,7 @@ Status Version::Get( const ReadOptions& options, const LookupKey& k, std::vector
         }
       }
     }
-     * 
-        */
+
       //outputFile<<num_files<<endl;
     //bool found = false;
     std::string val;
@@ -624,10 +623,12 @@ Status Version::Get( const ReadOptions& options, const LookupKey& k, std::vector
       saver.value = &val;
       s = vset_->table_cache_->Get(options, f->number, f->file_size, ikey, &saver, SaveValue);
       
-       
+      //continue;
       
       if(s.ok() & !s.IsNotFound() && saver.state == kFound)
       {
+
+    	DB::hit++;
         
         //outputFile<<user_key.ToString()<<"\n"<<saver.state<<"\n";
         //if(level > 0)
@@ -649,8 +650,10 @@ Status Version::Get( const ReadOptions& options, const LookupKey& k, std::vector
 				// check for updated values
 
 				//outputFile<<user_key.ToString()<<" ukey\n"<<secKey.c_str()<<std::endl;
-
-				value.push_back(pkey);
+                bool f = DBImpl::PushResult(value, pkey , t);
+				if(f==false)
+					return s;
+                //value.push_back(pkey);
 
 				//kNoOfOutputs--;
 
